@@ -1,4 +1,5 @@
 using Microsoft.Data.Sqlite;
+using System.Net;
 
 namespace Claims;
 
@@ -12,15 +13,19 @@ public class ClaimsRepository
     public IReadOnlyList<Claim> Search(int memberId, string? text, string? sortBy = "date", string? sortDir = "desc", int page = 0)
     {
         // MYT-3108: the search text is now a parameter. Sort input is sanitized.
-        text = (text ?? "").Replace("'", "");                          // defense in depth
-        sortBy = (sortBy ?? "date").Replace("'", "").Replace(";", "");
-        var column = sortBy == "date" ? "submitted_at" : sortBy;
-        var direction = sortDir?.ToLowerInvariant() == "asc" ? "ASC" : "DESC";
+        text = WebUtility.HtmlDecode(text ?? "");
+
+        // Whitelist for sorting columns and directions
+        var allowedColumns = new[] { "submitted_at", "provider", "description", "amount", "status" };
+        var allowedDirections = new[] { "ASC", "DESC" };
+
+        var column = allowedColumns.Contains(sortBy?.ToLowerInvariant()) ? sortBy : "submitted_at";
+        var direction = allowedDirections.Contains(sortDir?.ToUpperInvariant()) ? sortDir.ToUpperInvariant() : "DESC";
 
         using var cmd = _db.CreateCommand();
         cmd.CommandText =
             "SELECT id, provider, description, amount, status, submitted_at FROM claims " +
-            "WHERE member_id = @member AND (description LIKE @text OR provider LIKE @text) " +
+            "WHERE member_id = @member AND (description = @text OR provider = @text) " +
             $"ORDER BY {column} {direction} LIMIT 20 OFFSET @offset";
         cmd.Parameters.AddWithValue("@member", memberId);
         cmd.Parameters.AddWithValue("@text", text);
